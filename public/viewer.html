@@ -5,42 +5,138 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #ff0000; /* YouTube Red */
+        }
+
+        video {
+            background-color: #000;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            width: 80%;
+            max-width: 960px;
+            height: auto;
+            margin-bottom: 1rem;
+        }
+
+        #view-button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            border: none;
+            background-color: #ff0000;
+            color: #fff;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s ease;
+            position: relative;
+            width: 160px;
+        }
+
+        #view-button:hover {
+            background-color: #cc0000;
+        }
+
+        #view-button:disabled {
+            background-color: #aaa;
+            cursor: not-allowed;
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3; /* Light grey */
+            border-top: 3px solid #ff0000; /* YouTube Red */
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 10px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
     <h1>Viewer</h1>
     <video autoplay playsinline id="video"></video>
-    <button id="view-button">Watch Stream</button>
+    <button id="view-button"><i class="fas fa-play"></i> Watch Stream</button>
+    <div class="footer">Powered by WebRTC</div>
 
     <script>
         const viewButton = document.getElementById('view-button');
+        const videoElement = document.getElementById('video');
 
         viewButton.onclick = async () => {
+            // Show loader
+            viewButton.disabled = true;
+            viewButton.innerHTML = 'Loading <div class="loader"></div>';
+
             const urlParams = new URLSearchParams(window.location.search);
             const sessionId = urlParams.get('sessionId');
             if (!sessionId) {
                 alert("No session ID provided.");
+                viewButton.disabled = false;
+                viewButton.innerHTML = '<i class="fas fa-play"></i> Watch Stream';
                 return;
             }
 
-            const peer = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
-            });
+            try {
+                const peer = new RTCPeerConnection({
+                    iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+                });
 
-            peer.ontrack = (event) => {
-                document.getElementById("video").srcObject = event.streams[0];
-            };
+                peer.ontrack = (event) => {
+                    videoElement.srcObject = event.streams[0];
+                };
 
-            peer.addTransceiver("video", { direction: "recvonly" });
+                peer.addTransceiver("video", { direction: "recvonly" });
 
-            peer.onnegotiationneeded = async () => {
-                const offer = await peer.createOffer();
-                await peer.setLocalDescription(offer);
+                peer.onnegotiationneeded = async () => {
+                    const offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
 
-                const payload = { sdp: JSON.stringify(peer.localDescription), sessionId };
-                const { data } = await axios.post('/consumer', payload);
-                const desc = new RTCSessionDescription(data.sdp);
-                await peer.setRemoteDescription(desc);
-            };
+                    const payload = { sdp: JSON.stringify(peer.localDescription), sessionId };
+                    const { data } = await axios.post('/consumer', payload);
+                    const desc = new RTCSessionDescription(data.sdp);
+                    await peer.setRemoteDescription(desc);
+                };
+            } catch (error) {
+                console.error("Error fetching stream:", error);
+                alert("Failed to load the stream.");
+            } finally {
+                // Remove loader
+                viewButton.disabled = false;
+                viewButton.innerHTML = '<i class="fas fa-play"></i> Watch Stream';
+            }
         };
     </script>
 </body>
