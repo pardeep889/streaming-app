@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
@@ -15,8 +16,6 @@
             color: #333;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
             height: 100vh;
         }
 
@@ -24,6 +23,21 @@
             font-size: 2rem;
             margin-bottom: 1rem;
             color: #ff0000; /* YouTube Red */
+            text-align: center;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #video-container {
+            flex: 3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
         }
 
         video {
@@ -33,82 +47,128 @@
             width: 80%;
             max-width: 960px;
             height: auto;
-            margin-bottom: 1rem;
         }
 
-        #view-button {
-            padding: 10px 20px;
-            font-size: 1rem;
-            border: none;
-            background-color: #ff0000;
-            color: #fff;
-            border-radius: 5px;
-            cursor: pointer;
+        #chat-container {
+            flex: 1;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background-color 0.3s ease;
-            position: relative;
-            width: 160px;
+            flex-direction: column;
+            background-color: #f8f9fa;
+            border-left: 1px solid #ccc;
+            padding: 10px;
         }
 
-        #view-button:hover {
-            background-color: #cc0000;
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 5px;
+            background: #fff;
+            margin-bottom: 10px;
         }
 
-        #view-button:disabled {
-            background-color: #aaa;
-            cursor: not-allowed;
+        .message {
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            line-height: 1.4;
         }
 
-        .loader {
-            border: 3px solid #f3f3f3; /* Light grey */
-            border-top: 3px solid #ff0000; /* YouTube Red */
-            border-radius: 50%;
-            width: 16px;
-            height: 16px;
-            animation: spin 1s linear infinite;
-            margin-left: 8px;
+        .message strong {
+            color: #007bff;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        #message-input {
+            display: flex;
+        }
+
+        #message-input input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px 0 0 5px;
+        }
+
+        #message-input button {
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+        }
+
+        #message-input button:hover {
+            background-color: #0056b3;
         }
 
         .footer {
-            position: absolute;
-            bottom: 10px;
             text-align: center;
             font-size: 0.8rem;
             color: #666;
+            padding: 10px;
+            background: #fff;
         }
     </style>
 </head>
 <body>
     <h1>Viewer</h1>
-    <video autoplay playsinline id="video"></video>
-    <button id="view-button"><i class="fas fa-play"></i> Watch Stream</button>
+    <div class="main-container">
+        <!-- Video Section -->
+        <div id="video-container">
+            <video autoplay playsinline id="video"></video>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chat-container">
+            <div id="messages"></div>
+            <form id="message-input">
+                <input type="text" id="chat-message" placeholder="Type your message..." required>
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
     <div class="footer">Powered by WebRTC</div>
 
     <script>
         const viewButton = document.getElementById('view-button');
         const videoElement = document.getElementById('video');
+        const messages = document.getElementById('messages');
+        const messageForm = document.getElementById('message-input');
+        const chatMessage = document.getElementById('chat-message');
 
-        viewButton.onclick = async () => {
-            // Show loader
-            viewButton.disabled = true;
-            viewButton.innerHTML = 'Loading <div class="loader"></div>';
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('sessionId');
+        const socket = io();
 
-            const urlParams = new URLSearchParams(window.location.search);
-            const sessionId = urlParams.get('sessionId');
-            if (!sessionId) {
-                alert("No session ID provided.");
-                viewButton.disabled = false;
-                viewButton.innerHTML = '<i class="fas fa-play"></i> Watch Stream';
-                return;
+        if (!sessionId) {
+            alert("No session ID provided.");
+            throw new Error("Session ID is required to join.");
+        }
+
+        // Join chat room
+        socket.emit('join-session', sessionId);
+
+        // Handle incoming chat messages
+        socket.on('chat-message', ({ username, message }) => {
+            const newMessage = document.createElement('div');
+            newMessage.classList.add('message');
+            newMessage.innerHTML = `<strong>${username}:</strong> ${message}`;
+            messages.appendChild(newMessage);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        // Send chat message
+        messageForm.onsubmit = (e) => {
+            e.preventDefault();
+            const message = chatMessage.value.trim();
+            if (message) {
+                socket.emit('chat-message', { sessionId, message, username: 'Viewer' });
+                chatMessage.value = '';
             }
+        };
 
+        // Fetch video stream
+        const fetchStream = async () => {
             try {
                 const peer = new RTCPeerConnection({
                     iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
@@ -132,12 +192,11 @@
             } catch (error) {
                 console.error("Error fetching stream:", error);
                 alert("Failed to load the stream.");
-            } finally {
-                // Remove loader
-                viewButton.disabled = false;
-                viewButton.innerHTML = '<i class="fas fa-play"></i> Watch Stream';
             }
         };
+
+        // Fetch the stream
+        fetchStream();
     </script>
 </body>
 </html>

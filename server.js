@@ -2,8 +2,13 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const webrtc = require("wrtc");
 const { v4: uuidv4 } = require('uuid'); // Install with `npm install uuid`
+const http = require('http');
+const { Server } = require('socket.io'); // Install with `npm install socket.io`
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
 app.use(express.static('public'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -14,13 +19,11 @@ let activeSessions = {};
 app.post('/broadcast', async ({ body }, res) => {
     const sessionId = uuidv4(); // Generate unique session ID
     const peer = new webrtc.RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+        iceServers: [{ urls: "stun:stunprotocol.org" }]
     });
 
-    activeSessions[sessionId] = { peer, stream: null, viewers: 0 }; // Add viewers count
-
     peer.ontrack = (e) => {
-        activeSessions[sessionId].stream = e.streams[0];
+        activeSessions[sessionId] = { peer, stream: e.streams[0], viewers: 0 };
     };
 
     const desc = new webrtc.RTCSessionDescription(JSON.parse(body.sdp));
@@ -51,8 +54,10 @@ app.post("/consumer", async ({ body }, res) => {
         return res.status(404).json({ error: "Session not found" });
     }
 
+    session.viewers += 1;
+
     const peer = new webrtc.RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+        iceServers: [{ urls: "stun:stunprotocol.org" }]
     });
 
     session.stream.getTracks().forEach(track => peer.addTrack(track, session.stream));
@@ -74,26 +79,37 @@ app.post("/consumer", async ({ body }, res) => {
         if (peer.iceGatheringState === "complete") resolve();
     });
 
-    session.viewers += 1; // Increment viewers count
-
     res.json({ sdp: peer.localDescription, candidates });
-
-    // Optional: Handle peer disconnection
-    peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "disconnected" || peer.connectionState === "closed") {
-            session.viewers -= 1;
-        }
-    };
 });
 
-// Endpoint for broadcaster to check viewer count
+// Get viewer count for a session
 app.get('/viewers/:sessionId', (req, res) => {
     const { sessionId } = req.params;
     const session = activeSessions[sessionId];
     if (!session) {
         return res.status(404).json({ error: "Session not found" });
     }
-    res.json({ sessionId, viewers: session.viewers });
+
+    res.json({ viewers: session.viewers });
 });
 
-app.listen(5000, () => console.log('Server started on http://192.168.1.16:5000'));
+// Handle chat via Socket.IO
+io.on('connection', (socket) => {
+    console.log('A user connected.');
+
+    socket.on('join-session', (sessionId) => {
+        socket.join(sessionId);
+        console.log(`User joined session: ${sessionId}`);
+    });
+
+    socket.on('chat-message', ({ sessionId, message, username }) => {
+        console.log(`Message in ${sessionId}: ${username}: ${message}`);
+        io.to(sessionId).emit('chat-message', { username, message });
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected.');
+    });
+});
+
+server.listen(5000, () => console.log('Server started on http://192.168.1.16:5000'));
