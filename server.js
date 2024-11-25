@@ -17,8 +17,10 @@ app.post('/broadcast', async ({ body }, res) => {
         iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
     });
 
+    activeSessions[sessionId] = { peer, stream: null, viewers: 0 }; // Add viewers count
+
     peer.ontrack = (e) => {
-        activeSessions[sessionId] = { peer, stream: e.streams[0] };
+        activeSessions[sessionId].stream = e.streams[0];
     };
 
     const desc = new webrtc.RTCSessionDescription(JSON.parse(body.sdp));
@@ -72,7 +74,26 @@ app.post("/consumer", async ({ body }, res) => {
         if (peer.iceGatheringState === "complete") resolve();
     });
 
+    session.viewers += 1; // Increment viewers count
+
     res.json({ sdp: peer.localDescription, candidates });
+
+    // Optional: Handle peer disconnection
+    peer.onconnectionstatechange = () => {
+        if (peer.connectionState === "disconnected" || peer.connectionState === "closed") {
+            session.viewers -= 1;
+        }
+    };
+});
+
+// Endpoint for broadcaster to check viewer count
+app.get('/viewers/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const session = activeSessions[sessionId];
+    if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+    }
+    res.json({ sessionId, viewers: session.viewers });
 });
 
 app.listen(5000, () => console.log('Server started on http://192.168.1.16:5000'));

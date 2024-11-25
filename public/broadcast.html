@@ -51,7 +51,7 @@
             background-color: #0056d4;
         }
 
-        #share-link {
+        #share-link, #viewer-count {
             margin-top: 1rem;
             font-size: 1rem;
             color: #333;
@@ -80,11 +80,15 @@
     <video autoplay playsinline muted id="video"></video>
     <button id="start-button"><i class="fas fa-video"></i> Start Broadcast</button>
     <p id="share-link"></p>
+    <p id="viewer-count">Viewers: 0</p>
     <div class="footer">Powered by WebRTC</div>
 
     <script>
         const startButton = document.getElementById('start-button');
         const shareLink = document.getElementById('share-link');
+        const viewerCount = document.getElementById('viewer-count');
+
+        let sessionId;
 
         startButton.onclick = async () => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -105,11 +109,29 @@
                 const desc = new RTCSessionDescription(data.sdp);
                 await peer.setRemoteDescription(desc);
 
+                sessionId = data.sessionId;
+
                 const link = `http://${window.location.host}/viewer.html?sessionId=${data.sessionId}`;
-                console.log(link)
                 shareLink.innerHTML = `Share this link: <a href="${link}" target="_blank">${link}</a>`;
+
+                // Start updating viewer count
+                updateViewerCount();
             };
         };
+
+        async function updateViewerCount() {
+            if (!sessionId) return;
+
+            try {
+                const response = await axios.get(`/viewers/${sessionId}`);
+                viewerCount.textContent = `Viewers: ${response.data.viewers}`;
+            } catch (error) {
+                console.error("Failed to fetch viewer count", error);
+            }
+
+            // Update every 5 seconds
+            setTimeout(updateViewerCount, 5000);
+        }
     </script>
 </body>
 </html>
