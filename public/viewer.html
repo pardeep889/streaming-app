@@ -9,13 +9,19 @@
 <body>
     <h1>Viewer</h1>
     <video autoplay playsinline id="video"></video>
-    <button id="view-button">View Stream</button>
+    <button id="view-button">Watch Stream</button>
 
     <script>
         const viewButton = document.getElementById('view-button');
-        viewButton.onclick = startViewing;
 
-        async function startViewing() {
+        viewButton.onclick = async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionId = urlParams.get('sessionId');
+            if (!sessionId) {
+                alert("No session ID provided.");
+                return;
+            }
+
             const peer = new RTCPeerConnection({
                 iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
             });
@@ -30,12 +36,12 @@
                 const offer = await peer.createOffer();
                 await peer.setLocalDescription(offer);
 
-                const payload = { sdp: JSON.stringify(peer.localDescription) };
+                const payload = { sdp: JSON.stringify(peer.localDescription), sessionId };
                 const { data } = await axios.post('/consumer', payload);
                 const desc = new RTCSessionDescription(data.sdp);
                 await peer.setRemoteDescription(desc);
             };
-        }
+        };
     </script>
 </body>
 </html>

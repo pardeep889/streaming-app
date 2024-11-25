@@ -1,73 +1,32 @@
 const express = require('express');
-const app = express();
 const bodyParser = require('body-parser');
 const webrtc = require("wrtc");
+const { v4: uuidv4 } = require('uuid'); // Install with `npm install uuid`
 
-let senderStream;
-
+const app = express();
 app.use(express.static('public'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Endpoint for viewers to connect and receive the stream
-app.post("/consumer", async ({ body }, res) => {
-    try {
-        const peer = new webrtc.RTCPeerConnection({
-            iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
-        });
-    
-        // Add existing broadcast stream to this peer connection
-        senderStream.getTracks().forEach(track => peer.addTrack(track, senderStream));
-    
-        // Set the remote SDP description sent by the viewer
-        const desc = new webrtc.RTCSessionDescription(JSON.parse(body.sdp));
-        await peer.setRemoteDescription(desc);
-    
-        // Create answer SDP and set it as local description
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-    
-        // Collect ICE candidates and send the response once ICE gathering completes
-        const candidates = [];
-        peer.onicecandidate = (event) => {
-            if (event.candidate) {
-                candidates.push(event.candidate);
-            }
-        };
-    
-        // Wait until ICE gathering is complete
-        await new Promise(resolve => peer.onicegatheringstatechange = () => {
-            if (peer.iceGatheringState === "complete") resolve();
-        });
-    
-        // Send SDP and ICE candidates together once ICE gathering is complete
-        return res.json({ sdp: peer.localDescription, candidates });
-    } catch (error) {
-        console.log("error", error)
-    }
-   
-});
+let activeSessions = {};
 
 // Endpoint for the broadcaster to start streaming
 app.post('/broadcast', async ({ body }, res) => {
+    const sessionId = uuidv4(); // Generate unique session ID
     const peer = new webrtc.RTCPeerConnection({
         iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
     });
 
-    // Save the broadcaster's stream to broadcast to consumers
     peer.ontrack = (e) => {
-        senderStream = e.streams[0];
+        activeSessions[sessionId] = { peer, stream: e.streams[0] };
     };
 
-    // Set the remote SDP description sent by the broadcaster
     const desc = new webrtc.RTCSessionDescription(JSON.parse(body.sdp));
     await peer.setRemoteDescription(desc);
 
-    // Create answer SDP and set it as local description
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
 
-    // Collect ICE candidates and send the response once ICE gathering completes
     const candidates = [];
     peer.onicecandidate = (event) => {
         if (event.candidate) {
@@ -75,14 +34,45 @@ app.post('/broadcast', async ({ body }, res) => {
         }
     };
 
-    // Wait until ICE gathering is complete
     await new Promise(resolve => peer.onicegatheringstatechange = () => {
         if (peer.iceGatheringState === "complete") resolve();
     });
 
-    // Send SDP and ICE candidates together once ICE gathering is complete
+    res.json({ sdp: peer.localDescription, candidates, sessionId });
+});
+
+// Endpoint for viewers to connect and receive the stream
+app.post("/consumer", async ({ body }, res) => {
+    const { sessionId, sdp } = body;
+    const session = activeSessions[sessionId];
+    if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+    }
+
+    const peer = new webrtc.RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+    });
+
+    session.stream.getTracks().forEach(track => peer.addTrack(track, session.stream));
+
+    const desc = new webrtc.RTCSessionDescription(JSON.parse(sdp));
+    await peer.setRemoteDescription(desc);
+
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+
+    const candidates = [];
+    peer.onicecandidate = (event) => {
+        if (event.candidate) {
+            candidates.push(event.candidate);
+        }
+    };
+
+    await new Promise(resolve => peer.onicegatheringstatechange = () => {
+        if (peer.iceGatheringState === "complete") resolve();
+    });
+
     res.json({ sdp: peer.localDescription, candidates });
 });
 
-// app.listen(5000, () => console.log('Server started on http://localhost:5000'));
 app.listen(5000, () => console.log('Server started on http://192.168.1.16:5000'));
