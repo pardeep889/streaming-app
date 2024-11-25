@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+</head>
+<body>
+    <h1>Viewer</h1>
+    <video autoplay playsinline id="video"></video>
+    <button id="view-button">View Stream</button>
+
+    <script>
+        const viewButton = document.getElementById('view-button');
+        viewButton.onclick = startViewing;
+
+        async function startViewing() {
+            const peer = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+            });
+
+            peer.ontrack = (event) => {
+                document.getElementById("video").srcObject = event.streams[0];
+            };
+
+            peer.addTransceiver("video", { direction: "recvonly" });
+
+            peer.onnegotiationneeded = async () => {
+                const offer = await peer.createOffer();
+                await peer.setLocalDescription(offer);
+
+                const payload = { sdp: JSON.stringify(peer.localDescription) };
+                const { data } = await axios.post('/consumer', payload);
+                const desc = new RTCSessionDescription(data.sdp);
+                await peer.setRemoteDescription(desc);
+            };
+        }
+    </script>
+</body>
+</html>

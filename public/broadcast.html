@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Broadcaster</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+</head>
+<body>
+    <h1>Broadcast</h1>
+    <video autoplay playsinline muted id="video"></video>
+    <button id="start-button">Start Broadcast</button>
+
+    <script>
+        const startButton = document.getElementById('start-button');
+        startButton.onclick = startBroadcast;
+
+        async function startBroadcast() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById("video").srcObject = stream;
+
+            const peer = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+            });
+
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+            peer.onnegotiationneeded = async () => {
+                const offer = await peer.createOffer();
+                await peer.setLocalDescription(offer);
+
+                const payload = { sdp: JSON.stringify(peer.localDescription) };
+                const { data } = await axios.post('/broadcast', payload);
+                const desc = new RTCSessionDescription(data.sdp);
+                await peer.setRemoteDescription(desc);
+            };
+        }
+    </script>
+</body>
+</html>
