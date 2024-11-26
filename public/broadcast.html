@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Broadcaster</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
@@ -79,49 +80,67 @@
     <h1>Broadcaster</h1>
     <video autoplay playsinline muted id="video"></video>
     <button id="start-button"><i class="fas fa-video"></i> Start Broadcast</button>
-    <p id="share-link"></p>
+    <p id="share-link">Share Link Will be Shown Here wait 30 seconds after Start Broadcasting</p>
     <p id="viewer-count">Viewers: 0</p>
     <div class="footer">Powered by WebRTC</div>
+
+    <div id="chat-container">
+        <div id="messages"></div>
+        <form id="message-input">
+            <input type="text" id="chat-message" placeholder="Type your message..." required>
+            <button type="submit">Send</button>
+        </form>
+    </div>
 
     <script>
         const startButton = document.getElementById('start-button');
         const shareLink = document.getElementById('share-link');
         const viewerCount = document.getElementById('viewer-count');
-
+        const messages = document.getElementById('messages');
+        const messageForm = document.getElementById('message-input');
+        const chatMessage = document.getElementById('chat-message');
+        const socket = io(); // Initialize socket
         let sessionId;
 
+        // Start broadcasting
         startButton.onclick = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            document.getElementById("video").srcObject = stream;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById("video").srcObject = stream;
 
-            const peer = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
-            });
+                const peer = new RTCPeerConnection({
+                    iceServers: [{ urls: "stun:stun.stunprotocol.org" }]
+                });
 
-            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+                stream.getTracks().forEach(track => peer.addTrack(track, stream));
 
-            peer.onnegotiationneeded = async () => {
-                const offer = await peer.createOffer();
-                await peer.setLocalDescription(offer);
+                peer.onnegotiationneeded = async () => {
+                    const offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
 
-                const payload = { sdp: JSON.stringify(peer.localDescription) };
-                const { data } = await axios.post('/broadcast', payload);
-                const desc = new RTCSessionDescription(data.sdp);
-                await peer.setRemoteDescription(desc);
+                    const payload = { sdp: JSON.stringify(peer.localDescription) };
+                    const { data } = await axios.post('/broadcast', payload);
+                    const desc = new RTCSessionDescription(data.sdp);
+                    await peer.setRemoteDescription(desc);
 
-                sessionId = data.sessionId;
+                    sessionId = data.sessionId;
 
-                const link = `http://${window.location.host}/viewer.html?sessionId=${data.sessionId}`;
-                shareLink.innerHTML = `Share this link: <a href="${link}" target="_blank">${link}</a>`;
+                    const link = `http://${window.location.host}/viewer.html?sessionId=${data.sessionId}`;
+                    shareLink.innerHTML = `Share this link: <a href="${link}" target="_blank">${link}</a>`;
 
-                // Start updating viewer count
-                updateViewerCount();
-            };
+                    // Join chat room
+                    socket.emit('join-session', sessionId);
+
+                    // Start updating viewer count
+                    updateViewerCount();
+                };
+            } catch (error) {
+                console.error("Error starting broadcast:", error);
+            }
         };
 
+        // Update viewer count
         async function updateViewerCount() {
-            if (!sessionId) return;
-
             try {
                 const response = await axios.get(`/viewers/${sessionId}`);
                 viewerCount.textContent = `Viewers: ${response.data.viewers}`;
@@ -129,9 +148,27 @@
                 console.error("Failed to fetch viewer count", error);
             }
 
-            // Update every 5 seconds
-            setTimeout(updateViewerCount, 5000);
+            setTimeout(updateViewerCount, 5000); // Update every 5 seconds
         }
+
+        // Handle incoming chat messages
+        socket.on('chat-message', ({ username, message }) => {
+            const newMessage = document.createElement('div');
+            newMessage.classList.add('message');
+            newMessage.innerHTML = `<strong>${username}:</strong> ${message}`;
+            messages.appendChild(newMessage);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        // Send chat messages
+        messageForm.onsubmit = (e) => {
+            e.preventDefault();
+            const message = chatMessage.value.trim();
+            if (message) {
+                socket.emit('chat-message', { sessionId, message, username: 'Broadcaster' });
+                chatMessage.value = '';
+            }
+        };
     </script>
 </body>
 </html>

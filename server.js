@@ -112,4 +112,4 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(5000, () => console.log('Server started on http://192.168.1.16:5000'));
+server.listen(5000, () => console.log('Server started on PORT 5000'));
