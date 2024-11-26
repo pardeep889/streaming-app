@@ -112,4 +112,6 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(5000, () => console.log('Server started on PORT 5000'));
+const PORT = process.env.PORT || 8080
+
+server.listen(PORT, () => console.log(`Server started on PORT ${PORT}`));
